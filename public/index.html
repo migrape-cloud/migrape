@@ -1,102 +1,215 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Shopify → EasyStore</title>
-<style>
-  body{font-family:-apple-system,Segoe UI,sans-serif;max-width:640px;margin:48px auto;padding:0 20px;color:#16232B}
-  h1{font-size:22px}
-  section{border:1px solid #D6DEE1;border-radius:6px;padding:20px;margin-bottom:18px}
-  section[data-locked="true"]{opacity:.4;pointer-events:none}
-  label{display:block;font-size:13px;font-weight:600;margin-bottom:4px}
-  input[type=text],input[type=password]{width:100%;padding:8px;margin-bottom:12px;border:1px solid #D6DEE1;border-radius:4px}
-  button{background:#16232B;color:#fff;border:none;padding:10px 18px;border-radius:4px;cursor:pointer;font-weight:600}
-  button:disabled{opacity:.4;cursor:not-allowed}
-  .flag{padding:8px 10px;border-radius:4px;font-size:13px;margin-bottom:6px}
-  .flag.warn{background:#FBF1DF;color:#5E3D0C}
-  .flag.stop{background:#FAEAE7;color:#6E2219}
-  .bar{height:10px;background:#E8EDEF;border-radius:5px;overflow:hidden;margin:12px 0}
-  .bar div{height:100%;background:#1F6F5C;width:0%;transition:width .3s}
-  #log{font-family:monospace;font-size:12px;white-space:pre-wrap;max-height:200px;overflow:auto;background:#F2F5F6;padding:10px;border-radius:4px}
-</style>
-</head>
-<body>
-<h1>Shopify → EasyStore product migration</h1>
-
-<section id="s-connect">
-  <label>EasyStore domain (e.g. mystore.easy.co)</label>
-  <input type="text" id="shop" placeholder="mystore.easy.co">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Shopify to EasyStore</title>
+  <style>
+    body{font-family:-apple-system,Segoe UI,sans-serif;max-width:640px;margin:48px auto;padding:0 20px;color:#16232B;line-height:1.5}
+    h1{font-size:22px;margin-bottom:4px}
+    .sub{color:#4A6371;font-size:14px;margin-bottom:24px}
+    .tabs{display:flex;gap:0;border:1px solid #D6DEE1;border-radius:6px;overflow:hidden;margin-bottom:18px}
+    .tab{flex:1;text-align:center;padding:10px;cursor:pointer;background:#fff;font-weight:600;font-size:13.5px;border-right:1px solid #D6DEE1}
+    .tab:last-child{border-right:none}
+    .tab.active{background:#16232B;color:#fff}
+    section{border:1px solid #D6DEE1;border-radius:6px;padding:20px;margin-bottom:16px}
+    section[data-locked="true"]{opacity:.4;pointer-events:none}
+    label{display:block;font-size:13px;font-weight:600;margin:12px 0 4px}
+    label:first-child{margin-top:0}
+    input[type=text],input[type=password]{width:100%;padding:9px;border:1px solid #D6DEE1;border-radius:4px;box-sizing:border-box;font-family:inherit}
+    button{background:#16232B;color:#fff;border:none;padding:10px 18px;border-radius:4px;cursor:pointer;font-weight:600;font-size:14px}
+    button.ghost{background:transparent;color:#4A6371;border:1px solid #D6DEE1}
+    button:disabled{opacity:.4;cursor:not-allowed}
+    .flag{padding:9px 11px;border-radius:4px;font-size:13px;margin-bottom:6px;line-height:1.5}
+    .flag.warn{background:#FBF1DF;color:#5E3D0C}
+    .flag.stop{background:#FAEAE7;color:#6E2219}
+    .bar{height:10px;background:#E8EDEF;border-radius:5px;overflow:hidden;margin:14px 0 8px}
+    .bar div{height:100%;background:#1F6F5C;width:0%;transition:width .3s}
+    .banner{padding:14px;border-radius:6px;font-weight:600;margin:14px 0;display:none}
+    .banner.success{background:#E7F2EE;color:#134539;display:block}
+    .banner.partial{background:#FBF1DF;color:#5E3D0C;display:block}
+    .banner.fail{background:#FAEAE7;color:#6E2219;display:block}
+    #log{font-family:ui-monospace,monospace;font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:260px;overflow:auto;background:#F2F5F6;padding:10px;border-radius:4px;margin-top:10px}
+    .hint{font-size:12.5px;color:#4A6371;margin-top:8px}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    </style>
+  </head>
+  <body>
+    <h1>Shopify to EasyStore migration</h1>
+  <p class="sub" id="connState">Not connected yet.</p>p>
+  
+  <div class="tabs">
+  <div class="tab active" data-type="products">Products</div>div>
+  <div class="tab" data-type="customers">Customers</div>div>
+  <div class="tab" data-type="orders">Orders</div>div>
+  </div>div>
+  
+  <section id="s-connect">
+  <div class="row">
+  <button id="btnInstall">Connect with EasyStore</button>button>
+  <span class="hint">Opens EasyStore's own install screen.</span>span>
+  </div>div>
+  <details style="margin-top:14px">
+  <summary style="cursor:pointer;font-size:13px;color:#4A6371">Or paste a token directly (for testing)</summary>summary>
+  <label>EasyStore domain</label>
+  <input type="text" id="shop" placeholder="decohomie.easy.co">
   <label>Access token</label>
   <input type="password" id="token" placeholder="paste token">
-  <button id="btnConnect">Connect</button>
-  <div id="connectMsg"></div>
-</section>
-
-<section id="s-upload" data-locked="true">
-  <label>Shopify product export (.csv)</label>
+  <button class="ghost" id="btnManualConnect" style="margin-top:12px">Connect with token</button>button>
+  </details>details>
+  </section>section>
+  
+  <section id="s-lookup" data-locked="true" style="display:none">
+  <label>EasyStore customer export (for matching buyers to codes)</label>
+  <input type="file" id="lookupFile" accept=".csv">
+  <div class="hint" id="lookupMsg"></div>div>
+  </section>section>
+  
+  <section id="s-upload" data-locked="true">
+  <label id="uploadLabel">Shopify product export (.csv)</label>
   <input type="file" id="file" accept=".csv">
-  <button id="btnUpload">Upload &amp; preview</button>
-  <div id="preview"></div>
-</section>
+  <div class="row" style="margin-top:12px">
+  <button id="btnUpload">Upload and preview</button>button>
+  </div>div>
+  <div id="preview" style="margin-top:12px"></div>div>
+  </section>section>
+  
+  <section id="s-run" data-locked="true">
+  <button id="btnRun">Start migration</button>button>
+  <div class="bar"><div id="barFill"></div>div></div>div>
+  <div id="stats" class="hint"></div>div>
+  <div id="banner" class="banner"></div>div>
+  <div id="log"></div>div>
+  </section>section>
+  
+  <script>
+    let sessionId = null, uploadId = null, lookupId = null, jobId = null, currentType = 'products';
 
-<section id="s-run" data-locked="true">
-  <button id="btnRun">Start migration</button>
-  <div class="bar"><div id="barFill"></div></div>
-  <div id="stats"></div>
-  <div id="log"></div>
-</section>
+    const LABELS = {
+      products: 'Shopify product export (.csv)',
+      customers: 'Shopify customer export (.csv)',
+      orders: 'Shopify order export (.csv)',
+    };
 
-<script>
-let sessionId = null, uploadId = null, jobId = null;
+    const params = new URLSearchParams(location.search);
+    if (params.get('connected') && params.get('sessionId')) {
+      sessionId = params.get('sessionId');
+      setConnected(params.get('shop') || '');
+      history.replaceState({}, '', location.pathname);
+    }
 
-document.getElementById('btnConnect').onclick = async () => {
-  const shop = document.getElementById('shop').value.trim();
-  const token = document.getElementById('token').value.trim();
-  const r = await fetch('/api/connect', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ shop, token }) });
-  const d = await r.json();
-  if (!r.ok) { document.getElementById('connectMsg').textContent = d.error; return; }
-  sessionId = d.sessionId;
-  document.getElementById('connectMsg').textContent = 'Connected to ' + d.shop;
-  document.getElementById('s-upload').removeAttribute('data-locked');
-};
+    document.querySelectorAll('.tab').forEach(t => {
+      t.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+        t.classList.add('active');
+        currentType = t.dataset.type;
+        document.getElementById('uploadLabel').textContent = LABELS[currentType];
+        document.getElementById('s-lookup').style.display = currentType === 'orders' ? 'block' : 'none';
+        if (sessionId) document.getElementById('s-lookup').removeAttribute('data-locked');
+        resetBelowConnect();
+      });
+    });
 
-document.getElementById('btnUpload').onclick = async () => {
-  const f = document.getElementById('file').files[0];
-  if (!f) return;
-  const fd = new FormData(); fd.append('file', f);
-  const r = await fetch('/api/upload', { method:'POST', body: fd });
-  const d = await r.json();
-  const box = document.getElementById('preview');
-  if (!r.ok) { box.textContent = d.error; return; }
-  uploadId = d.uploadId;
-  box.innerHTML = `<p>${d.productCount} products, ${d.variantCount} variants found.</p>` +
-    d.flags.map(f => `<div class="flag ${f.level}">${f.text}</div>`).join('');
-  document.getElementById('s-run').removeAttribute('data-locked');
-};
+    function resetBelowConnect() {
+      uploadId = null; lookupId = null; jobId = null;
+      document.getElementById('preview').innerHTML = '';
+      document.getElementById('banner').className = 'banner';
+      document.getElementById('banner').textContent = '';
+      document.getElementById('log').textContent = '';
+      document.getElementById('stats').textContent = '';
+      document.getElementById('barFill').style.width = '0%';
+      document.getElementById('s-run').setAttribute('data-locked', 'true');
+    }
 
-document.getElementById('btnRun').onclick = async () => {
-  const r = await fetch('/api/migrate', { method:'POST',
-    headers:{'Content-Type':'application/json','X-Session-Id':sessionId},
-    body: JSON.stringify({ uploadId }) });
-  const d = await r.json();
-  if (!r.ok) { document.getElementById('log').textContent = d.error; return; }
-  jobId = d.jobId;
-  poll();
-};
+    function setConnected(shop) {
+      document.getElementById('connState').textContent = `Connected to ${shop}.`;
+      document.getElementById('s-upload').removeAttribute('data-locked');
+      if (currentType === 'orders') document.getElementById('s-lookup').removeAttribute('data-locked');
+    }
 
-async function poll() {
-  const r = await fetch('/api/migrate/' + jobId);
-  const d = await r.json();
-  const pct = Math.round(((d.done + d.failed) / d.total) * 100);
-  document.getElementById('barFill').style.width = pct + '%';
-  document.getElementById('stats').textContent =
-    `${d.done} done, ${d.failed} failed, ${d.pending} remaining (of ${d.total})`;
-  document.getElementById('log').textContent =
-    d.items.filter(i => i.status === 'failed').map(i => `✗ ${i.title}: ${i.error}`).join('\n');
-  if (d.pending > 0) setTimeout(poll, 1500);
-}
-</script>
-</body>
-</html>
+    document.getElementById('btnInstall').addEventListener('click', () => {
+      const shop = prompt('Which EasyStore domain? (e.g. decohomie.easy.co)');
+      if (!shop) return;
+      location.href = `/auth/install?shop=${encodeURIComponent(shop.trim())}`;
+    });
+
+    document.getElementById('btnManualConnect').addEventListener('click', async () => {
+      const shop = document.getElementById('shop').value.trim();
+      const token = document.getElementById('token').value.trim();
+      if (!shop || !token) return;
+      const r = await fetch('/api/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                             body: JSON.stringify({ shop, token }) });
+      const d = await r.json();
+      if (!r.ok) { alert(d.error); return; }
+      sessionId = d.sessionId;
+      setConnected(d.shop);
+    });
+
+    document.getElementById('lookupFile').addEventListener('change', async (e) => {
+      const f = e.target.files[0];
+      if (!f) return;
+      const fd = new FormData(); fd.append('file', f);
+      const r = await fetch('/api/upload-customer-lookup', { method: 'POST', body: fd });
+      const d = await r.json();
+      const box = document.getElementById('lookupMsg');
+      if (!r.ok) { box.textContent = d.error; return; }
+      lookupId = d.lookupId;
+      box.textContent = `Matched ${d.matched} customers.`;
+    });
+
+    document.getElementById('btnUpload').addEventListener('click', async () => {
+      const f = document.getElementById('file').files[0];
+      if (!f) return;
+      const fd = new FormData(); fd.append('file', f);
+      const r = await fetch(`/api/upload?type=${currentType}`, { method: 'POST', body: fd });
+      const d = await r.json();
+      const box = document.getElementById('preview');
+      if (!r.ok) { box.innerHTML = `<div class="flag stop">${d.error}</div>`; return; }
+      uploadId = d.uploadId;
+      box.innerHTML = `<p>${d.recordCount} ${currentType} found (${d.itemCount} items).</p>` +
+        d.flags.map(f => `<div class="flag ${f.level}">${f.text}</div>`).join('');
+      document.getElementById('s-run').removeAttribute('data-locked');
+    });
+
+    document.getElementById('btnRun').addEventListener('click', async () => {
+      const r = await fetch('/api/migrate', { method: 'POST',
+                                             headers: { 'Content-Type': 'application/json', 'X-Session-Id': sessionId },
+                                             body: JSON.stringify({ uploadId, lookupId }) });
+      const d = await r.json();
+      if (!r.ok) { document.getElementById('log').textContent = d.error; return; }
+      jobId = d.jobId;
+      poll();
+    });
+
+    async function poll() {
+      const r = await fetch('/api/migrate/' + jobId);
+      const d = await r.json();
+      const pct = Math.round(((d.done + d.failed) / d.total) * 100);
+      document.getElementById('barFill').style.width = pct + '%';
+      document.getElementById('stats').textContent = `${d.done} done, ${d.failed} failed, ${d.pending} remaining (of ${d.total})`;
+
+      const failedItems = d.items.filter(i => i.status === 'failed');
+      document.getElementById('log').textContent = failedItems.map(i => `FAILED: ${i.title}\n   ${i.error}`).join('\n\n');
+
+      if (d.pending > 0) { setTimeout(poll, 1500); return; }
+
+      const banner = document.getElementById('banner');
+      if (d.failed === 0) {
+        banner.className = 'banner success';
+        banner.textContent = `Done - all ${d.total} ${currentType} migrated successfully.`;
+      } else if (d.done === 0) {
+        banner.className = 'banner fail';
+        banner.textContent = `Nothing succeeded - all ${d.total} ${currentType} failed. See errors below.`;
+      } else {
+        banner.className = 'banner partial';
+        banner.textContent = `Partly done - ${d.done} succeeded, ${d.failed} failed. See errors below.`;
+      }
+    }
+  </script>
+  </body>
+</html>html>
+
+  </script></label></label></h1>
+  </body>
+  </style></title>
+  </head>
