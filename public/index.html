@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shopify → EasyStore</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,sans-serif;max-width:640px;margin:48px auto;padding:0 20px;color:#16232B}
+  h1{font-size:22px}
+  section{border:1px solid #D6DEE1;border-radius:6px;padding:20px;margin-bottom:18px}
+  section[data-locked="true"]{opacity:.4;pointer-events:none}
+  label{display:block;font-size:13px;font-weight:600;margin-bottom:4px}
+  input[type=text],input[type=password]{width:100%;padding:8px;margin-bottom:12px;border:1px solid #D6DEE1;border-radius:4px}
+  button{background:#16232B;color:#fff;border:none;padding:10px 18px;border-radius:4px;cursor:pointer;font-weight:600}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .flag{padding:8px 10px;border-radius:4px;font-size:13px;margin-bottom:6px}
+  .flag.warn{background:#FBF1DF;color:#5E3D0C}
+  .flag.stop{background:#FAEAE7;color:#6E2219}
+  .bar{height:10px;background:#E8EDEF;border-radius:5px;overflow:hidden;margin:12px 0}
+  .bar div{height:100%;background:#1F6F5C;width:0%;transition:width .3s}
+  #log{font-family:monospace;font-size:12px;white-space:pre-wrap;max-height:200px;overflow:auto;background:#F2F5F6;padding:10px;border-radius:4px}
+</style>
+</head>
+<body>
+<h1>Shopify → EasyStore product migration</h1>
+
+<section id="s-connect">
+  <label>EasyStore domain (e.g. mystore.easy.co)</label>
+  <input type="text" id="shop" placeholder="mystore.easy.co">
+  <label>Access token</label>
+  <input type="password" id="token" placeholder="paste token">
+  <button id="btnConnect">Connect</button>
+  <div id="connectMsg"></div>
+</section>
+
+<section id="s-upload" data-locked="true">
+  <label>Shopify product export (.csv)</label>
+  <input type="file" id="file" accept=".csv">
+  <button id="btnUpload">Upload &amp; preview</button>
+  <div id="preview"></div>
+</section>
+
+<section id="s-run" data-locked="true">
+  <button id="btnRun">Start migration</button>
+  <div class="bar"><div id="barFill"></div></div>
+  <div id="stats"></div>
+  <div id="log"></div>
+</section>
+
+<script>
+let sessionId = null, uploadId = null, jobId = null;
+
+document.getElementById('btnConnect').onclick = async () => {
+  const shop = document.getElementById('shop').value.trim();
+  const token = document.getElementById('token').value.trim();
+  const r = await fetch('/api/connect', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ shop, token }) });
+  const d = await r.json();
+  if (!r.ok) { document.getElementById('connectMsg').textContent = d.error; return; }
+  sessionId = d.sessionId;
+  document.getElementById('connectMsg').textContent = 'Connected to ' + d.shop;
+  document.getElementById('s-upload').removeAttribute('data-locked');
+};
+
+document.getElementById('btnUpload').onclick = async () => {
+  const f = document.getElementById('file').files[0];
+  if (!f) return;
+  const fd = new FormData(); fd.append('file', f);
+  const r = await fetch('/api/upload', { method:'POST', body: fd });
+  const d = await r.json();
+  const box = document.getElementById('preview');
+  if (!r.ok) { box.textContent = d.error; return; }
+  uploadId = d.uploadId;
+  box.innerHTML = `<p>${d.productCount} products, ${d.variantCount} variants found.</p>` +
+    d.flags.map(f => `<div class="flag ${f.level}">${f.text}</div>`).join('');
+  document.getElementById('s-run').removeAttribute('data-locked');
+};
+
+document.getElementById('btnRun').onclick = async () => {
+  const r = await fetch('/api/migrate', { method:'POST',
+    headers:{'Content-Type':'application/json','X-Session-Id':sessionId},
+    body: JSON.stringify({ uploadId }) });
+  const d = await r.json();
+  if (!r.ok) { document.getElementById('log').textContent = d.error; return; }
+  jobId = d.jobId;
+  poll();
+};
+
+async function poll() {
+  const r = await fetch('/api/migrate/' + jobId);
+  const d = await r.json();
+  const pct = Math.round(((d.done + d.failed) / d.total) * 100);
+  document.getElementById('barFill').style.width = pct + '%';
+  document.getElementById('stats').textContent =
+    `${d.done} done, ${d.failed} failed, ${d.pending} remaining (of ${d.total})`;
+  document.getElementById('log').textContent =
+    d.items.filter(i => i.status === 'failed').map(i => `✗ ${i.title}: ${i.error}`).join('\n');
+  if (d.pending > 0) setTimeout(poll, 1500);
+}
+</script>
+</body>
+</html>
