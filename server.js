@@ -20,19 +20,22 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 
 app.use(express.static('public'));
 app.use(express.json());
 
-/* In-memory store of connected shops, keyed by a short session id.
-   Good enough to run this yourself; a real multi-merchant deployment
-   would swap this for a proper database - see README. */
-const sessions = new Map(); // sessionId -> { shop, token }
+/* Sessions are keyed by shop domain, not a random ID. This matters for
+   embedded loads: when EasyStore puts the app in an iframe, the browser
+   carries no cookie or session id from our earlier connect - but EasyStore
+   appends ?shop=&hmac=&timestamp= to the App URL on every load, the same
+   way it does on install. Verifying that hmac and looking the shop up
+   directly is how the app recognizes who's loading it. */
+const sessions = new Map(); // shop -> { shop, token }
 
 function getSession(req) {
-  const sid = req.headers['x-session-id'];
-  return sid ? sessions.get(sid) : null;
+  const shop = (req.headers['x-shop-domain'] || '').trim().toLowerCase();
+  return shop ? sessions.get(shop) : null;
 }
 function startSession(shop, token) {
-  const sid = crypto.randomBytes(12).toString('hex');
-  sessions.set(sid, { shop: shop.replace(/\/$/, ''), token });
-  return sid;
+  const key = shop.replace(/\/$/, '').toLowerCase();
+  sessions.set(key, { shop: key, token });
+  return key;
 }
 
 /* =======================  connect a store  =======================
@@ -83,10 +86,8 @@ app.get('/auth/callback', async (req, res) => {
 
   try {
     const token = await easystore.exchangeToken(shop, clientId, clientSecret, code);
-    const sid = startSession(shop, token);
-    // A real cookie would survive a page refresh; for now hand the session id
-    // to the dashboard via the URL and let its JS store it for the tab.
-    res.redirect(`/?connected=1&sessionId=${sid}&shop=${encodeURIComponent(shop)}`);
+    startSession(shop, token);
+    res.redirect(`/?connected=1&shop=${encodeURIComponent(shop)}`);
   } catch (e) {
     res.status(502).send(`Could not exchange the code for a token: ${e.message}`);
   }
@@ -95,8 +96,29 @@ app.get('/auth/callback', async (req, res) => {
 app.post('/api/connect', (req, res) => {
   const { shop, token } = req.body || {};
   if (!shop || !token) return res.status(400).json({ error: 'shop and token are required' });
-  const sid = startSession(shop, token);
-  res.json({ sessionId: sid, shop });
+  startSession(shop, token);
+  res.json({ shop: shop.replace(/\/$/, '').toLowerCase() });
+});
+
+/* Called by the dashboard when it loads inside EasyStore's iframe.
+   EasyStore appends shop/hmac/timestamp (and host_url) to the App URL on
+   every embedded load, same as the install redirect. Verifying the hmac
+   confirms this genuinely came from EasyStore, then we look up the token
+   already stored from a prior install - an embed load never carries a
+   fresh install, so if nothing's stored the merchant needs to (re)install
+   through the normal /auth/install flow first. */
+app.post('/api/embed-connect', (req, res) => {
+  const clientSecret = process.env.EASYSTORE_CLIENT_SECRET;
+  const { shop } = req.body || {};
+  if (!clientSecret) return res.status(500).json({ error: 'EASYSTORE_CLIENT_SECRET not set on the server' });
+  if (!shop) return res.status(400).json({ error: 'shop is required' });
+
+  const valid = easystore.verifyCallbackHmac(req.body, clientSecret);
+  if (!valid) return res.status(401).json({ error: 'hmac did not verify' });
+
+  const key = shop.replace(/\/$/, '').toLowerCase();
+  if (!sessions.has(key)) return res.status(404).json({ error: 'not installed yet - connect through the normal install flow first' });
+  res.json({ shop: key });
 });
 
 /* =======================  upload + preview  =======================
