@@ -83,7 +83,7 @@
 </section>
 
 <script>
-let sessionId = null, uploadId = null, lookupId = null, jobId = null, currentType = 'products';
+let currentShop = null, uploadId = null, lookupId = null, jobId = null, currentType = 'products';
 
 const LABELS = {
   products: 'Shopify product export (.csv)',
@@ -91,12 +91,25 @@ const LABELS = {
   orders: 'Shopify order export (.csv)',
 };
 
-// pick up an auto-connect redirect from /auth/callback
+// Two ways this page can start already connected:
+// 1. Redirected here from /auth/callback after a fresh install (?connected=1&shop=)
+// 2. Loaded directly inside EasyStore's admin iframe, which appends
+//    ?shop=&hmac=&timestamp=&host_url= on every embedded load. That hmac
+//    is verified server-side before trusting the shop it names.
 const params = new URLSearchParams(location.search);
-if (params.get('connected') && params.get('sessionId')) {
-  sessionId = params.get('sessionId');
-  setConnected(params.get('shop') || '');
+if (params.get('connected') && params.get('shop')) {
+  setConnected(params.get('shop'));
   history.replaceState({}, '', location.pathname); // tidy the URL
+} else if (params.get('shop') && params.get('hmac') && params.get('timestamp')) {
+  const body = {};
+  params.forEach((v, k) => { body[k] = v; });
+  fetch('/api/embed-connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+      if (ok) setConnected(d.shop);
+      else document.getElementById('connState').textContent = `Not connected (${d.error}) - use "Connect with EasyStore" below.`;
+    })
+    .catch(() => { document.getElementById('connState').textContent = 'Could not verify this embedded load - use "Connect with EasyStore" below.'; });
 }
 
 document.querySelectorAll('.tab').forEach(t => {
@@ -106,7 +119,7 @@ document.querySelectorAll('.tab').forEach(t => {
     currentType = t.dataset.type;
     document.getElementById('uploadLabel').textContent = LABELS[currentType];
     document.getElementById('s-lookup').style.display = currentType === 'orders' ? 'block' : 'none';
-    if (sessionId) document.getElementById('s-lookup').removeAttribute('data-locked');
+    if (currentShop) document.getElementById('s-lookup').removeAttribute('data-locked');
     resetBelowConnect();
   });
 });
@@ -123,6 +136,7 @@ function resetBelowConnect() {
 }
 
 function setConnected(shop) {
+  currentShop = shop;
   document.getElementById('connState').textContent = `Connected to ${shop}.`;
   document.getElementById('s-upload').removeAttribute('data-locked');
   if (currentType === 'orders') document.getElementById('s-lookup').removeAttribute('data-locked');
@@ -142,7 +156,6 @@ document.getElementById('btnManualConnect').addEventListener('click', async () =
     body: JSON.stringify({ shop, token }) });
   const d = await r.json();
   if (!r.ok) { alert(d.error); return; }
-  sessionId = d.sessionId;
   setConnected(d.shop);
 });
 
@@ -174,7 +187,7 @@ document.getElementById('btnUpload').addEventListener('click', async () => {
 
 document.getElementById('btnRun').addEventListener('click', async () => {
   const r = await fetch('/api/migrate', { method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Session-Id': sessionId },
+    headers: { 'Content-Type': 'application/json', 'X-Shop-Domain': currentShop },
     body: JSON.stringify({ uploadId, lookupId }) });
   const d = await r.json();
   if (!r.ok) { document.getElementById('log').textContent = d.error; return; }
