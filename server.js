@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 
 const shopify = require('./lib/shopify');
+const shopifyApi = require('./lib/shopifyapi');
 const easystore = require('./lib/easystore');
 const jobs = require('./lib/jobs');
 
@@ -145,6 +146,14 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
   }
   if (!records.length) return res.status(400).json({ error: `no ${type} found - is this the right export?` });
 
+  res.json(stageRecords(type, records));
+});
+
+/* Shared by /api/upload (a CSV came from the merchant's browser) and
+   /api/shopify/pull (records came straight from Shopify's API). Either
+   way the result is the same: a batch of records saved to disk, ready
+   for /api/migrate, with the same flags a merchant would see either way. */
+function stageRecords(type, records) {
   const uploadId = crypto.randomBytes(8).toString('hex');
   fs.writeFileSync(`data/upload-${uploadId}.json`, JSON.stringify({ type, records }));
 
@@ -165,12 +174,44 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
     itemCount = records.reduce((n, o) => n + o.items.length, 0);
   }
 
-  res.json({
-    uploadId, type,
-    recordCount: records.length,
-    itemCount,
-    flags,
-  });
+  return { uploadId, type, recordCount: records.length, itemCount, flags };
+}
+
+/* =======================  Shopify API connect + pull  =======================
+   The alternative to uploading a CSV: the merchant pastes a Shopify Admin
+   API access token once (same shortcut as EasyStore's manual token -
+   create a custom app in Shopify's own admin, no Partner review needed),
+   and "Pull products" fetches the live catalog directly. Products only for
+   now - customers and orders still go through the file-based passes. = */
+
+app.post('/api/shopify/connect', (req, res) => {
+  const session = getSession(req);
+  if (!session) return res.status(401).json({ error: 'connect an EasyStore first' });
+  const { shopifyShop, shopifyToken } = req.body || {};
+  if (!shopifyShop || !shopifyToken) return res.status(400).json({ error: 'shopifyShop and shopifyToken are required' });
+  session.shopify = {
+    shop: shopifyShop.replace(/\/$/, ''),
+    token: shopifyToken,
+  };
+  res.json({ shop: session.shopify.shop });
+});
+
+app.post('/api/shopify/pull', async (req, res) => {
+  const session = getSession(req);
+  if (!session) return res.status(401).json({ error: 'connect an EasyStore first' });
+  if (!session.shopify) return res.status(400).json({ error: 'connect a Shopify store first' });
+  const type = req.query.type || 'products';
+  if (type !== 'products') return res.status(400).json({ error: 'only products can be pulled automatically right now - customers and orders still use the file upload' });
+
+  let records;
+  try {
+    records = await shopifyApi.fetchAllProductsFromShopify(session.shopify.shop, session.shopify.token);
+  } catch (e) {
+    return res.status(502).json({ error: `Could not reach Shopify: ${e.message}` });
+  }
+  if (!records.length) return res.status(400).json({ error: 'no products found in that Shopify store' });
+
+  res.json(stageRecords('products', records));
 });
 
 /* EasyStore customer export, used only by the orders pass to look up
