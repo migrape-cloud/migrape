@@ -65,6 +65,19 @@
   <div class="hint" id="lookupMsg"></div>
 </section>
 
+<section id="s-shopify" data-locked="true">
+  <div class="row">
+    <input type="text" id="shopifyShop" placeholder="mystore.myshopify.com" style="flex:1">
+    <input type="password" id="shopifyToken" placeholder="Shopify admin API token" style="flex:1">
+  </div>
+  <div class="row" style="margin-top:12px">
+    <button class="ghost" id="btnShopifyConnect">Connect Shopify</button>
+    <button id="btnShopifyPull" disabled>Pull products from Shopify</button>
+  </div>
+  <div class="hint">From a custom app created in the merchant's own Shopify admin (Settings &gt; Apps &gt; Develop apps) &mdash; no Shopify Partner review needed. Pulls the live catalog directly, no file to export.</div>
+  <div class="hint" id="shopifyMsg"></div>
+</section>
+
 <section id="s-upload" data-locked="true">
   <label id="uploadLabel">Shopify product export (.csv)</label>
   <input type="file" id="file" accept=".csv">
@@ -119,7 +132,11 @@ document.querySelectorAll('.tab').forEach(t => {
     currentType = t.dataset.type;
     document.getElementById('uploadLabel').textContent = LABELS[currentType];
     document.getElementById('s-lookup').style.display = currentType === 'orders' ? 'block' : 'none';
-    if (currentShop) document.getElementById('s-lookup').removeAttribute('data-locked');
+    document.getElementById('s-shopify').style.display = currentType === 'products' ? 'block' : 'none';
+    if (currentShop) {
+      document.getElementById('s-lookup').removeAttribute('data-locked');
+      document.getElementById('s-shopify').removeAttribute('data-locked');
+    }
     resetBelowConnect();
   });
 });
@@ -140,6 +157,18 @@ function setConnected(shop) {
   document.getElementById('connState').textContent = `Connected to ${shop}.`;
   document.getElementById('s-upload').removeAttribute('data-locked');
   if (currentType === 'orders') document.getElementById('s-lookup').removeAttribute('data-locked');
+  if (currentType === 'products') document.getElementById('s-shopify').removeAttribute('data-locked');
+}
+
+// Shared by both the CSV-upload path and the Shopify-pull path -- either
+// way the server hands back the same {uploadId, recordCount, itemCount,
+// flags} shape, so both routes into a migration look identical from here.
+function renderPreview(d) {
+  const box = document.getElementById('preview');
+  uploadId = d.uploadId;
+  box.innerHTML = `<p>${d.recordCount} ${currentType} found (${d.itemCount} total items to create).</p>` +
+    d.flags.map(f => `<div class="flag ${f.level}">${f.text}</div>`).join('');
+  document.getElementById('s-run').removeAttribute('data-locked');
 }
 
 document.getElementById('btnInstall').addEventListener('click', () => {
@@ -157,6 +186,34 @@ document.getElementById('btnManualConnect').addEventListener('click', async () =
   const d = await r.json();
   if (!r.ok) { alert(d.error); return; }
   setConnected(d.shop);
+});
+
+document.getElementById('btnShopifyConnect').addEventListener('click', async () => {
+  const shopifyShop = document.getElementById('shopifyShop').value.trim();
+  const shopifyToken = document.getElementById('shopifyToken').value.trim();
+  if (!shopifyShop || !shopifyToken) return;
+  const r = await fetch('/api/shopify/connect', { method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Shop-Domain': currentShop },
+    body: JSON.stringify({ shopifyShop, shopifyToken }) });
+  const d = await r.json();
+  const box = document.getElementById('shopifyMsg');
+  if (!r.ok) { box.textContent = d.error; return; }
+  box.textContent = `Connected to ${d.shop}.`;
+  document.getElementById('btnShopifyPull').disabled = false;
+});
+
+document.getElementById('btnShopifyPull').addEventListener('click', async () => {
+  const btn = document.getElementById('btnShopifyPull');
+  const box = document.getElementById('shopifyMsg');
+  btn.disabled = true;
+  box.textContent = 'Pulling products from Shopify...';
+  const r = await fetch('/api/shopify/pull?type=products', { method: 'POST',
+    headers: { 'X-Shop-Domain': currentShop } });
+  const d = await r.json();
+  btn.disabled = false;
+  if (!r.ok) { box.textContent = d.error; return; }
+  box.textContent = `Pulled ${d.recordCount} products.`;
+  renderPreview(d);
 });
 
 document.getElementById('lookupFile').addEventListener('change', async (e) => {
@@ -177,13 +234,10 @@ document.getElementById('btnUpload').addEventListener('click', async () => {
   const fd = new FormData(); fd.append('file', f);
   const r = await fetch(`/api/upload?type=${currentType}`, { method: 'POST', body: fd });
   const d = await r.json();
-  const box = document.getElementById('preview');
-  if (!r.ok) { box.innerHTML = `<div class="flag stop">${d.error}</div>`; return; }
-  uploadId = d.uploadId;
-  box.innerHTML = `<p>${d.recordCount} ${currentType} found (${d.itemCount} total items to create).</p>` +
-    d.flags.map(f => `<div class="flag ${f.level}">${f.text}</div>`).join('');
-  document.getElementById('s-run').removeAttribute('data-locked');
+  if (!r.ok) { document.getElementById('preview').innerHTML = `<div class="flag stop">${d.error}</div>`; return; }
+  renderPreview(d);
 });
+
 
 document.getElementById('btnRun').addEventListener('click', async () => {
   const r = await fetch('/api/migrate', { method: 'POST',
